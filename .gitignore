@@ -1,1 +1,3 @@
 bin/verilog2neur
+examples/*.textir
+examples/*.neur
