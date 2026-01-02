@@ -143,3 +143,8 @@ Simulating the synthesized neural network for this module produces the following
 ```
 
 We can see that it starts off at 0 in step 0, then activates the counter_0 neuron in step 13 (indicating a count of 1), then switches to counter_1 in step 24 (indicating a count of 2), and continues incrementing the count to 3, 4 and 5 in subsequent steps.
+
+## License
+
+This project is licensed under the Apache License 2.0.
+The `neur` simulator found in the `neur` subdirectory is written by Devine Lu Linvega and licensed under the MIT License.
