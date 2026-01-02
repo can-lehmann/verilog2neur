@@ -1,0 +1,193 @@
+#include <stdio.h>
+
+/*
+Copyright (c) 2025 Devine Lu Linvega
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE.
+*/
+
+typedef struct Neuron {
+	char *name;
+	int alive, inhibited, threshold, saturation;
+	int excilen, inhilen;
+	struct Neuron *exci[0x10], *inhi[0x10];
+} Neuron;
+
+static char dict[0x2000], *_dict = dict;
+static Neuron net[0x200], *_net = net;
+static Neuron *live[0x200], **_live = live;
+
+static int
+wcompare(char *s, char *name)
+{
+	char *_s = s, *_n = name;
+	while(*_s == *_n && *_n != '/')
+		_s++, _n++;
+	return (*_s == '*' || *_s == '/') && *_n == 0;
+}
+
+static char *
+wrewind(char *s)
+{
+	char c;
+	while((c = *(--s)) && c > 0x20)
+		if(c == '*' || c == ':' || c == ';') break;
+	return ++s;
+}
+
+static Neuron *
+nfind(char *s)
+{
+	char *name;
+	Neuron *n = net;
+	/* Anonymous neuron */
+	if(s[0] == '*') {
+		_net->name = &dict[0];
+		return _net++;
+	}
+	/* Search Neuron */
+	while(n < _net) {
+		if(wcompare(s, n->name))
+			return n;
+		n++;
+	}
+	/* Create Neuron */
+	name = _dict;
+	while(*s != '*' && *s != '/')
+		*_dict++ = s[0], s++;
+	*_dict++ = 0;
+	_net->name = name;
+	if(*s == '/')
+		_net->threshold = s[1] - '0', _net->alive = 1;
+	return _net++;
+}
+
+static void
+nconnect(Neuron **lhs, Neuron **_lhs, Neuron **rhs, Neuron **_rhs, int inhibitor)
+{
+	Neuron **_l = lhs;
+	int threshold = _lhs - _l;
+	while(_l < _lhs) {
+		Neuron **_r = rhs, *n = *_l++;
+		while(_r < _rhs) {
+			Neuron *nn = *_r++;
+			if(inhibitor)
+				n->inhi[n->inhilen++] = nn;
+			else
+				n->exci[n->excilen++] = nn;
+			if(!nn->alive)
+				nn->threshold = threshold, nn->alive = 1;
+		}
+	}
+}
+
+static void
+parse(char *src)
+{
+	char c;
+	int inhibitor = 0, depth = 0;
+	Neuron *lhs[0x20], **_lhs = lhs, *rhs[0x20], **_rhs = rhs, *_n = _net;
+	*_dict++ = '*', *_dict++ = 0;
+	while((c = *src)) {
+		if(c == '*') {
+			if(depth & 1)
+				*_rhs = nfind(wrewind(src)), _rhs++;
+			else
+				*_lhs = nfind(wrewind(src)), _lhs++;
+		} else if(c == ':' || c == ';') {
+			if(depth++) {
+				if(depth & 1)
+					nconnect(rhs, _rhs, lhs, _lhs, inhibitor), _rhs = rhs;
+				else
+					nconnect(lhs, _lhs, rhs, _rhs, inhibitor), _lhs = lhs;
+			}
+			inhibitor = c == ';';
+		} else if(c == '.') {
+			if(!depth) {
+				Neuron **_l = lhs;
+				while(_l < _lhs) {
+					if((*_l)->alive == 0)
+						(*_l)->threshold = 1;
+					(*_l)->alive = 2, _l++;
+				}
+			} else if(depth & 1)
+				nconnect(lhs, _lhs, rhs, _rhs, inhibitor);
+			else
+				nconnect(rhs, _rhs, lhs, _lhs, inhibitor);
+			_lhs = lhs, _rhs = rhs, inhibitor = depth = 0;
+		}
+		src++;
+	}
+	/* initialize live neurons */
+	while(_n < _net) {
+		if(_n->alive == 2)
+			*_live++ = _n;
+		_n++;
+	}
+}
+
+static int
+step(int count)
+{
+	Neuron **_l = live;
+	Neuron *excited[0x200], **_excited = excited, **_e = excited;
+	Neuron *dirty[0x200], **_dirty = dirty, **_d = dirty;
+	/* saturate */
+	printf("%02d ", count);
+	while(_l < _live) {
+		Neuron *n = *_l;
+		int i;
+		printf("%s/%d ", n->name, n->threshold);
+		if(!n->threshold)
+			*_excited++ = n;
+		for(i = 0; i < n->inhilen; i++) {
+			Neuron *nn = n->inhi[i];
+			nn->inhibited = 1, *_dirty++ = nn;
+		}
+		for(i = 0; i < n->excilen; i++) {
+			Neuron *nn = n->exci[i];
+			if(!nn->inhibited) {
+				nn->saturation++, *_dirty++ = nn;
+				if(nn->saturation == nn->threshold)
+					*_excited++ = nn;
+			}
+		}
+		_l++;
+	}
+	printf("\n");
+	/* respond */
+	_live = live;
+	while(_e < _excited) {
+		if(!(*_e)->inhibited)
+			*_live++ = *_e;
+		_e++;
+	}
+	/* clean */
+	while(_d < _dirty)
+		(*_d)->saturation = 0, (*_d)->inhibited = 0, _d++;
+	return _live != live;
+}
+
+int
+main(int argc, char *argv[])
+{
+	FILE *f;
+	int a = 1, t = 0;
+	char src[0x20000];
+	if(argc < 2)
+		return !printf("Neur Graph, 8 Feb 2025.\nusage: neur [-i] input.neu [arguments..]\n");
+	if(argv[a][0] == '-' && argv[a][1] == 'i')
+		a++;
+	if(!(f = fopen(argv[a], "r")))
+		return !printf("Source missing: %s\n", argv[a]);
+	if(!fread(&src, 1, 0x20000, f))
+		return !printf("Source empty: %s\n", argv[a]);
+	parse(src), fclose(f);
+	while(step(t++) && t < 0x30);
+	return 0;
+}
