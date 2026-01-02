@@ -1,0 +1,3 @@
+[submodule "modules/hdl.cpp"]
+	path = modules/hdl.cpp
+	url = https://github.com/can-lehmann/hdl.cpp.git
