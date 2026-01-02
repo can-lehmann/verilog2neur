@@ -25,6 +25,7 @@ public:
   };
 private:
   std::vector<Neuron> _neurons;
+  std::vector<Id> _init;
 public:
   Net() {}
 
@@ -42,6 +43,10 @@ public:
     _neurons[to].inhibit.push_back(from);
   }
 
+  void init(Id id) {
+    _init.push_back(id);
+  }
+
 private:
   std::string neuron_name(Id id) const {
     std::ostringstream name;
@@ -51,18 +56,22 @@ private:
       name << _neurons[id].name;
     }
     name << '/' << _neurons[id].threshold;
+    name << '*';
     return name.str();
   }
 public:
   void write(std::ostream& stream) const {
     for (Id id = 0; id < _neurons.size(); id++) {
-      stream << " : " << neuron_name(id) << " .\n";
       for (Id from : _neurons[id].excite) {
         stream << neuron_name(from) << " : " << neuron_name(id) << " .\n";
       }
       for (Id from : _neurons[id].inhibit) {
         stream << neuron_name(from) << " ; " << neuron_name(id) << " .\n";
       }
+    }
+
+    for (Id id : _init) {
+      stream << neuron_name(id) << " .\n";
     }
   }
 
@@ -81,6 +90,9 @@ private:
   Net& _net;
   std::unordered_map<Value*, Net::Id> _values;
 
+  Net::Id _always = 0;
+  Net::Id _never = 0;
+
   Net::Id build_and(Net::Id a, Net::Id b) {
     Net::Id id = _net.add(2);
     _net.excite(a, id);
@@ -96,7 +108,8 @@ private:
   }
 
   Net::Id build_not(Net::Id a) {
-    Net::Id id = _net.add(0);
+    Net::Id id = _net.add(1);
+    _net.excite(_always, id);
     _net.inhibit(a, id);
     return id;
   }
@@ -108,7 +121,13 @@ private:
     );
   }
 public:
-  NetBuilder(Net& net): _net(net) {}
+  NetBuilder(Net& net): _net(net) {
+    _always = _net.add(1, "_always");
+    _net.excite(_always, _always);
+    _net.init(_always);
+
+    _never = _net.add(1, "_never");
+  }
 
   Net::Id build(Value* value) {
     if (_values.find(value) != _values.end()) {
@@ -118,9 +137,9 @@ public:
     Net::Id id = 0;
     if (Constant* constant = dynamic_cast<Constant*>(value)) {
       if (constant->value.as_bool()) {
-        id = _net.add(0); // Always firing neuron
+        id = _always;
       } else {
-        id = _net.add(1); // Never firing neuron
+        id = _never;
       }
     } else if (Input* input = dynamic_cast<Input*>(value)) {
       id = _net.add(1, input->name);

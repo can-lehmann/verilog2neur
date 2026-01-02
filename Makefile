@@ -1,9 +1,12 @@
 EXAMPLES := $(patsubst %.v,%.neur,$(wildcard examples/*.v))
 
-all: $(EXAMPLES)
+all: bin/neur bin/verilog2neur $(EXAMPLES)
 
 bin/verilog2neur: src/main.cpp
 	clang++ -g -o $@ $<
+
+bin/neur: neur/neur.c
+	clang -O3 -o $@ $<
 
 examples/%.neur: examples/%.textir bin/verilog2neur
 	bin/verilog2neur $< $@
