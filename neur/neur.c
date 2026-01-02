@@ -188,6 +188,6 @@ main(int argc, char *argv[])
 	if(!fread(&src, 1, 0x20000, f))
 		return !printf("Source empty: %s\n", argv[a]);
 	parse(src), fclose(f);
-	while(step(t++) && t < 0x30);
+	while(step(t++) && t < 1000);
 	return 0;
 }

@@ -85,13 +85,14 @@ public:
   }
 };
 
-class NetBuilder {
+class SynthNet {
 private:
   Net& _net;
   std::unordered_map<Value*, Net::Id> _values;
 
   Net::Id _always = 0;
   Net::Id _never = 0;
+  Net::Id _clock = 0;
 
   Net::Id build_and(Net::Id a, Net::Id b) {
     Net::Id id = _net.add(2);
@@ -121,12 +122,15 @@ private:
     );
   }
 public:
-  NetBuilder(Net& net): _net(net) {
+  SynthNet(Net& net): _net(net) {
     _always = _net.add(1, "_always");
     _net.excite(_always, _always);
     _net.init(_always);
 
     _never = _net.add(1, "_never");
+
+    _clock = _net.add(1, "_clock");
+    _net.init(_clock);
   }
 
   Net::Id build(Value* value) {
@@ -159,11 +163,50 @@ public:
     return id;
   }
 
-  void build(Module& module) {
+  void build_clock(Net::Id clock, size_t period) {
+    _net.init(clock);
+    Net::Id prev = clock;
+    for (size_t it = 0; it < period; it++) {
+      Net::Id next = _net.add(1);
+      _net.excite(prev, next);
+      prev = next;
+    }
+    _net.excite(prev, clock);
+  }
+
+  void run(Module& module) {
+    for (Reg* reg : module.regs()) {
+      _values[reg] = _net.add(1, reg->name);
+      if (reg->initial.as_bool()) {
+        _net.init(_values[reg]);
+      }
+    }
+
+    for (Reg* reg : module.regs()) {
+      Net::Id clock = _clock; // We ignore the reg->clock for now
+      Net::Id next = build(reg->next);
+      Net::Id set = _net.add(2);
+      Net::Id reset = _net.add(1);
+
+      _net.excite(clock, set);
+      _net.excite(next, set);
+
+      _net.excite(clock, reset);
+      _net.inhibit(next, reset);
+
+      Net::Id q = _values[reg];
+
+      _net.excite(set, q);
+      _net.inhibit(reset, q);
+      _net.excite(q, q);
+    }
+
     for (Output output : module.outputs()) {
       Net::Id id = build(output.value);
       _net.excite(id, _net.add(1, output.name));
     }
+
+    build_clock(_clock, 10);
   }
 };
 
@@ -187,6 +230,27 @@ int main(int argc, char** argv) {
     flattening.define(input, bits);
   }
 
+  for (Reg* reg : module.regs()) {
+    std::vector<Value*> bits;
+    for (size_t it = 0; it < reg->width; it++) {
+      Reg* bit = flattened_module.reg(BitString::from_bool(reg->initial.at(it)), nullptr);
+      bit->name = reg->name + "_" + std::to_string(it);
+      bits.push_back(bit);
+    }
+    flattening.define(reg, bits);
+  }
+
+  for (Reg* reg : module.regs()) {
+    flattening.flatten(reg->next);
+    flattening.flatten(reg->clock);
+    
+    for (size_t it = 0; it < reg->width; it++) {
+      Reg* bit_reg = (Reg*) flattening[reg][it];
+      bit_reg->next = flattening[reg->next][it];
+      bit_reg->clock = flattening[reg->clock][0];
+    }
+  }
+
   for (Output output : module.outputs()) {
     flattening.flatten(output.value);
     std::vector<Value*> bits = flattening[output.value];
@@ -198,8 +262,8 @@ int main(int argc, char** argv) {
   }
 
   Net net;
-  NetBuilder net_builder(net);
-  net_builder.build(flattened_module);
+  SynthNet synth(net);
+  synth.run(flattened_module);
 
   net.save(argv[2]);
 
