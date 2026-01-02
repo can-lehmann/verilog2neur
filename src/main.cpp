@@ -83,6 +83,31 @@ public:
     }
     write(stream);
   }
+
+  void write_dot(std::ostream& stream) const {
+    stream << "digraph {\n";
+    for (Id id = 0; id < _neurons.size(); id++) {
+      stream << "n" << id << " [label=\"" << neuron_name(id) << "\"];\n";
+    }
+    for (Id id = 0; id < _neurons.size(); id++) {
+      for (Id from : _neurons[id].excite) {
+        stream << "n" << from << " -> " << "n" << id << " [color=black];\n";
+      }
+      for (Id from : _neurons[id].inhibit) {
+        stream << "n" << from << " -> " << "n" << id << " [color=red];\n";
+      }
+    }
+    stream << "}\n";
+  }
+
+  void save_dot(const char* path) const {
+    std::ofstream stream;
+    stream.open(path);
+    if (!stream) {
+      throw std::runtime_error("Unable to open file for writing.");
+    }
+    write_dot(stream);
+  }
 };
 
 class SynthNet {
@@ -211,12 +236,27 @@ public:
 };
 
 int main(int argc, char** argv) {
-  if (argc != 3) {
-    std::cerr << "Usage:\n\t" << argv[0] << " <input_file.textir> <output_file.neur>\n";
+  if (argc != 4) {
+    std::cerr << "Usage:\n\t" << argv[0] << " [compile/show] <input_file.textir> <output_file.neur>\n";
     return 1;
   }
 
-  Module module = textir::Reader::load_module(argv[1]);
+  enum class Mode {
+    Compile,
+    Show
+  };
+
+  Mode mode;
+  if (std::string(argv[1]) == "compile") {
+    mode = Mode::Compile;
+  } else if (std::string(argv[1]) == "show") {
+    mode = Mode::Show;
+  } else {
+    std::cerr << "Invalid mode \"" << argv[1] << "\". Expected \"compile\" or \"show\".\n";
+    return 1;
+  }
+
+  Module module = textir::Reader::load_module(argv[2]);
 
   Module flattened_module("flattened");
   flatten::Flattening flattening(flattened_module);
@@ -265,7 +305,11 @@ int main(int argc, char** argv) {
   SynthNet synth(net);
   synth.run(flattened_module);
 
-  net.save(argv[2]);
-
+  if (mode == Mode::Show) {
+    net.save_dot(argv[3]);
+  } else {
+    net.save(argv[3]);
+  }
+  
   return 0;
 }
